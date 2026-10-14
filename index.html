@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>위로!</title>
+  <title>게임 모음</title>
   <style>
     body {
       margin: 0;
@@ -12,578 +12,59 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: #0c0a09;
+      padding: 24px 16px;
+      box-sizing: border-box;
+      background: #0b1026;
       color: #fff;
       font-family: "Malgun Gothic", sans-serif;
-      transition: background 1.5s;
     }
-    #stage { font-weight: bold; color: #f9e2af; }
-    h1 { margin: 0 0 10px; }
-    #info {
+    h1 { margin: 0 0 6px; font-size: 34px; }
+    p { margin: 0 0 28px; color: #aab; }
+    .games {
       display: flex;
-      gap: 28px;
-      align-items: center;
-      margin-bottom: 10px;
-      font-size: 18px;
-    }
-    #lives { display: inline-flex; gap: 6px; vertical-align: middle; }
-    .life {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      background: #fff;
-    }
-    .life.lost { background: #45475a; }
-    #wrap { position: relative; }
-    canvas {
-      display: block;
-      background: #11111b;
-      border: 6px solid #3f3f46;
-      border-radius: 8px;
-      max-width: 95vw;
-      transition: border-color 1.5s, box-shadow 1.5s;
-    }
-    #overlay {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      flex-wrap: wrap;
       gap: 20px;
-      background: rgba(0, 0, 0, 0.6);
-      border-radius: 8px;
+      justify-content: center;
+      max-width: 960px;
     }
-    #message { font-size: 64px; font-weight: bold; }
-    #startBtn {
-      font-size: 24px;
-      padding: 12px 32px;
-      border: none;
-      border-radius: 10px;
-      background: #89b4fa;
-      color: #11111b;
-      font-weight: bold;
-      cursor: pointer;
+    /* 게임 카드 하나 */
+    a.card {
+      width: 250px;
+      padding: 24px 20px;
+      border-radius: 16px;
+      background: #1a2148;
+      border: 3px solid #2b3467;
+      color: #fff;
+      text-decoration: none;
+      text-align: center;
+      transition: transform 0.15s, border-color 0.15s;
     }
-    #startBtn:hover { background: #b4d0fb; }
-    #help { margin-top: 10px; font-size: 14px; color: #a6adc8; }
-    .hidden { display: none !important; }
+    a.card:hover { transform: translateY(-6px); border-color: #ffd166; }
+    .icon { font-size: 56px; }
+    .name { margin: 10px 0 6px; font-size: 24px; font-weight: bold; color: #ffd166; }
+    .desc { font-size: 15px; line-height: 1.6; color: #ccd; }
   </style>
 </head>
 <body>
-  <h1>🚀 위로!</h1>
-  <div id="info">
-    <div id="stage"></div>
-    <div>레벨: <span id="level">1</span></div>
-    <div>점수: <span id="score">0</span></div>
-    <div>목숨: <span id="lives"></span></div>
+  <h1>🎮 게임 모음</h1>
+  <p>하고 싶은 게임을 눌러 주세요</p>
+
+  <div class="games">
+    <a class="card" href="위로/index.html">
+      <div class="icon">🧱</div>
+      <div class="name">위로!</div>
+      <div class="desc">공을 튕겨 벽돌을 깨요.<br>땅속에서 우주까지 올라가요.</div>
+    </a>
+    <a class="card" href="별을향해/index.html">
+      <div class="icon">🐱</div>
+      <div class="name">별을 향해</div>
+      <div class="desc">턱시도 고양이가 폴짝 날아<br>나무와 파이프 사이를 지나가요.</div>
+    </a>
+    <a class="card" href="로봇출격/index.html">
+      <div class="icon">🤖</div>
+      <div class="name">로봇 출격!</div>
+      <div class="desc">로봇을 타고 우주선과<br>운석을 부수는 슈팅 게임이에요.</div>
+    </a>
   </div>
-
-  <div id="wrap">
-    <canvas id="game" width="640" height="480"></canvas>
-    <div id="overlay">
-      <div id="message"></div>
-      <button id="startBtn">게임 시작</button>
-    </div>
-  </div>
-
-  <div id="help">아이템: <b style="color:#a6e3a1">↔</b> 패들 길어짐(10초) · <b style="color:#cba6f7">+</b> 공 늘어남</div>
-
-  <script>
-    // ===== 기본 준비 =====
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
-    const overlay = document.getElementById("overlay");
-    const message = document.getElementById("message");
-    const startBtn = document.getElementById("startBtn");
-    const scoreText = document.getElementById("score");
-    const levelText = document.getElementById("level");
-    const livesBox = document.getElementById("lives");
-    const stageText = document.getElementById("stage");
-
-    // ===== 배경 테마: 땅속에서 우주까지 올라가기 =====
-    // 레벨 1부터 차례대로, 마지막 테마(우주)는 그 뒤로 계속 유지
-    const THEMES = [
-      { name: "⛏️ 깊은 땅속", top: "#0c0a09", bottom: "#1c1917", border: "#3f3f46", page: "#0c0a09", deco: "rocks" },
-      { name: "🪨 흙 속",     top: "#2a1a0e", bottom: "#4a2f1a", border: "#8b5a2b", page: "#1f140b", deco: "dirt" },
-      { name: "🌱 땅 위",     top: "#14532d", bottom: "#1f3d1a", border: "#4ade80", page: "#0f2a17", deco: "grass" },
-      { name: "☁️ 하늘",      top: "#1e3a8a", bottom: "#2563eb", border: "#60a5fa", page: "#0f1d4a", deco: "clouds" },
-      { name: "🌌 하늘 끝",   top: "#1e1036", bottom: "#4c1d95", border: "#a78bfa", page: "#170b2b", deco: "fewStars" },
-      { name: "🚀 우주",      top: "#000000", bottom: "#050510", border: "#1f2937", page: "#000000", deco: "stars" },
-    ];
-
-    // 배경은 레벨마다 한 번만 그려두고 계속 재사용 (매번 그리면 느려서)
-    const bgCanvas = document.createElement("canvas");
-    bgCanvas.width = canvas.width;
-    bgCanvas.height = canvas.height;
-    const bg = bgCanvas.getContext("2d");
-
-    function currentTheme() {
-      return THEMES[Math.min(level, THEMES.length) - 1];
-    }
-
-    // a ~ b 사이 아무 숫자
-    function rand(a, b) {
-      return a + Math.random() * (b - a);
-    }
-
-    function makeBackground() {
-      const t = currentTheme();
-      const W = canvas.width;
-      const H = canvas.height;
-
-      // 위에서 아래로 색이 바뀌는 배경
-      const grad = bg.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, t.top);
-      grad.addColorStop(1, t.bottom);
-      bg.fillStyle = grad;
-      bg.fillRect(0, 0, W, H);
-
-      if (t.deco === "rocks" || t.deco === "dirt") {
-        // 돌멩이
-        const color = t.deco === "rocks" ? "120,113,108" : "180,130,80";
-        for (let i = 0; i < 45; i++) {
-          bg.fillStyle = `rgba(${color},${rand(0.08, 0.25)})`;
-          bg.beginPath();
-          bg.ellipse(rand(0, W), rand(0, H), rand(3, 14), rand(2, 8), rand(0, Math.PI), 0, Math.PI * 2);
-          bg.fill();
-        }
-        // 흙 속에는 나무뿌리
-        if (t.deco === "dirt") {
-          bg.strokeStyle = "rgba(120,80,40,0.35)";
-          bg.lineWidth = 2;
-          for (let i = 0; i < 6; i++) {
-            let x = rand(0, W);
-            let y = 0;
-            bg.beginPath();
-            bg.moveTo(x, y);
-            while (y < H * 0.6) {
-              x += rand(-15, 15);
-              y += rand(15, 30);
-              bg.lineTo(x, y);
-            }
-            bg.stroke();
-          }
-        }
-      }
-
-      if (t.deco === "grass") {
-        // 아래쪽 풀
-        for (let x = 0; x < W; x += 5) {
-          const h = rand(10, 28);
-          bg.strokeStyle = `rgba(74,222,128,${rand(0.2, 0.45)})`;
-          bg.lineWidth = 2;
-          bg.beginPath();
-          bg.moveTo(x, H);
-          bg.quadraticCurveTo(x + rand(-4, 4), H - h / 2, x + rand(-6, 6), H - h);
-          bg.stroke();
-        }
-        // 날아다니는 작은 빛 (반딧불)
-        for (let i = 0; i < 25; i++) {
-          bg.fillStyle = `rgba(250,250,150,${rand(0.15, 0.4)})`;
-          bg.beginPath();
-          bg.arc(rand(0, W), rand(0, H * 0.8), rand(1, 2.5), 0, Math.PI * 2);
-          bg.fill();
-        }
-      }
-
-      if (t.deco === "clouds") {
-        // 흐릿한 구름 (공과 헷갈리지 않게 아주 연하게)
-        for (let i = 0; i < 7; i++) {
-          const cx = rand(0, W);
-          const cy = rand(30, H - 80);
-          bg.fillStyle = "rgba(255,255,255,0.10)";
-          for (let j = 0; j < 5; j++) {
-            bg.beginPath();
-            bg.ellipse(cx + j * 18 - 36, cy + rand(-6, 6), rand(20, 32), rand(12, 18), 0, 0, Math.PI * 2);
-            bg.fill();
-          }
-        }
-      }
-
-      if (t.deco === "fewStars" || t.deco === "stars") {
-        // 별
-        const count = t.deco === "stars" ? 160 : 40;
-        for (let i = 0; i < count; i++) {
-          bg.fillStyle = `rgba(255,255,255,${rand(0.2, 0.8)})`;
-          bg.beginPath();
-          bg.arc(rand(0, W), rand(0, H), rand(0.5, 1.6), 0, Math.PI * 2);
-          bg.fill();
-        }
-      }
-
-      if (t.deco === "stars") {
-        // 멀리 보이는 행성
-        const px = rand(W * 0.6, W * 0.9);
-        const py = rand(H * 0.55, H * 0.75);
-        const planet = bg.createRadialGradient(px - 12, py - 12, 5, px, py, 45);
-        planet.addColorStop(0, "rgba(250,179,135,0.35)");
-        planet.addColorStop(1, "rgba(120,60,40,0.15)");
-        bg.fillStyle = planet;
-        bg.beginPath();
-        bg.arc(px, py, 45, 0, Math.PI * 2);
-        bg.fill();
-      }
-
-      // 테두리, 페이지 배경, 단계 이름도 함께 바꾸기
-      canvas.style.borderColor = t.border;
-      canvas.style.boxShadow = `0 0 30px ${t.border}55`;
-      document.body.style.background = t.page;
-      stageText.textContent = t.name;
-    }
-
-    // ===== 설정 값 =====
-    const MAX_LIVES = 3;
-    const BASE_SPEED = 4;        // 레벨 1의 공 속도
-    const SPEED_PER_LEVEL = 0.6; // 레벨이 오를 때마다 빨라지는 정도
-    const ITEM_CHANCE = 0.1;     // 아이템이 나올 확률 (10%)
-    const PADDLE_W = 100;
-    const PADDLE_LONG_W = 160;
-    const LONG_TIME = 10000;     // 패들이 길어져 있는 시간 (10초)
-    const MAX_BALLS = 12;
-
-    // ===== 패들 (아래쪽 막대) =====
-    const paddle = { w: PADDLE_W, h: 14, x: 0, y: canvas.height - 30, speed: 8, longUntil: 0 };
-
-    // ===== 공 (여러 개가 될 수 있어서 목록으로 관리) =====
-    const BALL_R = 8;
-    let balls = [];
-
-    // ===== 떨어지는 아이템 목록 =====
-    let items = [];
-
-    // ===== 벽돌 (5줄 x 8칸) =====
-    const ROWS = 5;
-    const COLS = 8;
-    const BRICK_W = 70;
-    const BRICK_H = 22;
-    const GAP = 6;
-    const TOP = 50;
-    const LEFT = (canvas.width - (COLS * BRICK_W + (COLS - 1) * GAP)) / 2;
-    const ROW_COLORS = ["#f38ba8", "#fab387", "#f9e2af", "#a6e3a1", "#89b4fa"];
-    let bricks = [];
-
-    // ===== 게임 상태 =====
-    let score = 0;
-    let level = 1;
-    let lives = MAX_LIVES;
-    let playing = false;
-    let waitTimer = 0;   // 0보다 크면 공이 패들 위에서 잠깐 기다림
-    let nextAction = ""; // 버튼을 눌렀을 때 할 일: "new" 또는 "next"
-    const keys = { left: false, right: false };
-
-    // 현재 레벨의 공 속도
-    function levelSpeed() {
-      return BASE_SPEED + (level - 1) * SPEED_PER_LEVEL;
-    }
-
-    // 목숨을 공 모양으로 보여주기
-    function showLives() {
-      livesBox.innerHTML = "";
-      for (let i = 0; i < MAX_LIVES; i++) {
-        const dot = document.createElement("span");
-        dot.className = i < lives ? "life" : "life lost";
-        livesBox.appendChild(dot);
-      }
-    }
-
-    function showInfo() {
-      scoreText.textContent = score;
-      levelText.textContent = level;
-      showLives();
-    }
-
-    // 벽돌 새로 쌓기
-    function makeBricks() {
-      bricks = [];
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          bricks.push({
-            x: LEFT + c * (BRICK_W + GAP),
-            y: TOP + r * (BRICK_H + GAP),
-            color: ROW_COLORS[r],
-            alive: true,
-          });
-        }
-      }
-    }
-
-    // 공 하나를 패들 위에 올려놓고 1초 기다리기
-    function serveBall() {
-      paddle.longUntil = 0;
-      paddle.w = PADDLE_W;
-      items = [];
-      balls = [{ x: 0, y: 0, dx: 0, dy: 0 }];
-      waitTimer = 60; // 약 1초
-    }
-
-    // ===== 조작: 방향키 =====
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowLeft") keys.left = true;
-      if (e.key === "ArrowRight") keys.right = true;
-    });
-    document.addEventListener("keyup", (e) => {
-      if (e.key === "ArrowLeft") keys.left = false;
-      if (e.key === "ArrowRight") keys.right = false;
-    });
-
-    // ===== 조작: 마우스 =====
-    canvas.addEventListener("mousemove", (e) => {
-      const rect = canvas.getBoundingClientRect();
-      // 화면에서 보이는 크기와 실제 크기가 다를 수 있어서 비율을 맞춤
-      const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
-      paddle.x = mouseX - paddle.w / 2;
-    });
-
-    // ===== 아이템 효과 =====
-    function useItem(type) {
-      if (type === "long") {
-        paddle.longUntil = performance.now() + LONG_TIME;
-      }
-      if (type === "multi") {
-        // 지금 있는 공마다 옆으로 퍼지는 공을 2개씩 더 만들기
-        const newBalls = [];
-        for (const b of balls) {
-          const speed = Math.hypot(b.dx, b.dy);
-          const angle = Math.atan2(b.dx, -b.dy);
-          for (const turn of [-0.4, 0.4]) {
-            if (balls.length + newBalls.length >= MAX_BALLS) break;
-            newBalls.push({
-              x: b.x,
-              y: b.y,
-              dx: speed * Math.sin(angle + turn),
-              dy: -Math.abs(speed * Math.cos(angle + turn)),
-            });
-          }
-        }
-        balls.push(...newBalls);
-      }
-    }
-
-    // ===== 공 하나 움직이기 =====
-    // 공이 아래로 빠지면 false를 돌려줌
-    function moveBall(ball) {
-      ball.x += ball.dx;
-      ball.y += ball.dy;
-
-      // 왼쪽/오른쪽 벽, 천장에 부딪히면 튕기기
-      if (ball.x - BALL_R < 0) { ball.x = BALL_R; ball.dx = Math.abs(ball.dx); }
-      if (ball.x + BALL_R > canvas.width) { ball.x = canvas.width - BALL_R; ball.dx = -Math.abs(ball.dx); }
-      if (ball.y - BALL_R < 0) { ball.y = BALL_R; ball.dy = Math.abs(ball.dy); }
-
-      // 패들에 부딪히면 튕기기 (맞은 위치에 따라 각도가 달라짐)
-      if (
-        ball.dy > 0 &&
-        ball.y + BALL_R >= paddle.y &&
-        ball.y + BALL_R <= paddle.y + paddle.h + 6 &&
-        ball.x >= paddle.x - BALL_R &&
-        ball.x <= paddle.x + paddle.w + BALL_R
-      ) {
-        let hit = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
-        hit = Math.max(-1, Math.min(1, hit)); // -1 ~ 1
-        const speed = Math.hypot(ball.dx, ball.dy);
-        const angle = hit * (Math.PI / 3); // 최대 60도
-        ball.dx = speed * Math.sin(angle);
-        ball.dy = -speed * Math.cos(angle);
-        ball.y = paddle.y - BALL_R;
-      }
-
-      // 벽돌에 부딪히면 깨기
-      for (const b of bricks) {
-        if (!b.alive) continue;
-        if (
-          ball.x + BALL_R > b.x &&
-          ball.x - BALL_R < b.x + BRICK_W &&
-          ball.y + BALL_R > b.y &&
-          ball.y - BALL_R < b.y + BRICK_H
-        ) {
-          b.alive = false;
-          score += 10;
-          scoreText.textContent = score;
-
-          // 10% 확률로 아이템 떨어뜨리기
-          if (Math.random() < ITEM_CHANCE) {
-            items.push({
-              x: b.x + BRICK_W / 2,
-              y: b.y + BRICK_H / 2,
-              type: Math.random() < 0.5 ? "long" : "multi",
-            });
-          }
-
-          // 옆에서 맞았는지, 위/아래에서 맞았는지 보고 튕기는 방향 정하기
-          const overlapX = Math.min(ball.x + BALL_R - b.x, b.x + BRICK_W - (ball.x - BALL_R));
-          const overlapY = Math.min(ball.y + BALL_R - b.y, b.y + BRICK_H - (ball.y - BALL_R));
-          if (overlapX < overlapY) ball.dx *= -1;
-          else ball.dy *= -1;
-          break; // 한 번에 벽돌 하나만
-        }
-      }
-
-      return ball.y - BALL_R <= canvas.height;
-    }
-
-    // ===== 한 번 움직이기 =====
-    function update() {
-      // 패들 길이 정하기 (아이템 시간이 남아 있으면 길게)
-      const oldW = paddle.w;
-      paddle.w = performance.now() < paddle.longUntil ? PADDLE_LONG_W : PADDLE_W;
-      paddle.x -= (paddle.w - oldW) / 2; // 가운데를 기준으로 늘어나게
-
-      // 패들 움직이기
-      if (keys.left) paddle.x -= paddle.speed;
-      if (keys.right) paddle.x += paddle.speed;
-      paddle.x = Math.max(0, Math.min(canvas.width - paddle.w, paddle.x));
-
-      // 출발 전: 공이 패들 위에 붙어 있다가 시간이 되면 발사
-      if (waitTimer > 0) {
-        const ball = balls[0];
-        ball.x = paddle.x + paddle.w / 2;
-        ball.y = paddle.y - BALL_R - 2;
-        waitTimer--;
-        if (waitTimer === 0) {
-          const speed = levelSpeed();
-          const angle = (Math.random() * 0.6 + 0.2) * (Math.random() < 0.5 ? -1 : 1);
-          ball.dx = speed * Math.sin(angle);
-          ball.dy = -speed * Math.cos(angle);
-        }
-        return;
-      }
-
-      // 모든 공 움직이기 (아래로 빠진 공은 지우기)
-      balls = balls.filter(moveBall);
-
-      // 아이템 떨어뜨리기, 패들로 받으면 효과 쓰기
-      for (const it of items) {
-        it.y += 2.5;
-        if (
-          it.y + 10 >= paddle.y &&
-          it.y - 10 <= paddle.y + paddle.h &&
-          it.x >= paddle.x &&
-          it.x <= paddle.x + paddle.w
-        ) {
-          useItem(it.type);
-          it.used = true;
-        }
-      }
-      items = items.filter((it) => !it.used && it.y < canvas.height + 20);
-
-      // 벽돌을 다 깨면 클리어
-      if (bricks.every((b) => !b.alive)) {
-        endGame("클리어!!", "#a6e3a1", "다음 레벨", "next");
-        return;
-      }
-
-      // 공이 하나도 안 남으면 목숨 하나 줄이기
-      if (balls.length === 0) {
-        lives--;
-        showLives();
-        if (lives <= 0) {
-          endGame("게임 오버", "#f38ba8", "다시 시작", "new");
-        } else {
-          serveBall();
-        }
-      }
-    }
-
-    // ===== 화면 그리기 =====
-    function draw() {
-      ctx.drawImage(bgCanvas, 0, 0);
-
-      // 벽돌
-      for (const b of bricks) {
-        if (!b.alive) continue;
-        ctx.fillStyle = b.color;
-        ctx.beginPath();
-        ctx.roundRect(b.x, b.y, BRICK_W, BRICK_H, 4);
-        ctx.fill();
-      }
-
-      // 아이템
-      ctx.font = "bold 16px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      for (const it of items) {
-        ctx.fillStyle = it.type === "long" ? "#a6e3a1" : "#cba6f7";
-        ctx.beginPath();
-        ctx.roundRect(it.x - 16, it.y - 10, 32, 20, 10);
-        ctx.fill();
-        ctx.fillStyle = "#11111b";
-        ctx.fillText(it.type === "long" ? "↔" : "+", it.x, it.y + 1);
-      }
-
-      // 패들 (길어진 동안은 초록색)
-      ctx.fillStyle = paddle.w > PADDLE_W ? "#a6e3a1" : "#cdd6f4";
-      ctx.beginPath();
-      ctx.roundRect(paddle.x, paddle.y, paddle.w, paddle.h, 7);
-      ctx.fill();
-
-      // 공
-      ctx.fillStyle = "#ffffff";
-      for (const ball of balls) {
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 출발 전 안내
-      if (playing && waitTimer > 0) {
-        ctx.fillStyle = "#f9e2af";
-        ctx.font = "bold 28px 'Malgun Gothic', sans-serif";
-        ctx.fillText("레벨 " + level + " 준비!", canvas.width / 2, canvas.height / 2 + 40);
-        ctx.font = "bold 20px 'Malgun Gothic', sans-serif";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(currentTheme().name, canvas.width / 2, canvas.height / 2 + 76);
-      }
-    }
-
-    // ===== 계속 반복하기 =====
-    function loop() {
-      if (!playing) return;
-      update();
-      draw();
-      if (playing) requestAnimationFrame(loop);
-    }
-
-    // ===== 시작 / 끝 =====
-    function startLevel() {
-      makeBackground();
-      makeBricks();
-      paddle.x = (canvas.width - PADDLE_W) / 2;
-      serveBall();
-      showInfo();
-      overlay.classList.add("hidden");
-      playing = true;
-      requestAnimationFrame(loop);
-    }
-
-    function endGame(text, color, buttonText, action) {
-      playing = false;
-      draw();
-      message.textContent = text;
-      message.style.color = color;
-      startBtn.textContent = buttonText;
-      nextAction = action;
-      overlay.classList.remove("hidden");
-    }
-
-    startBtn.addEventListener("click", () => {
-      if (nextAction === "next") {
-        level++;              // 다음 레벨 (점수와 목숨은 그대로)
-      } else {
-        level = 1;            // 처음부터
-        score = 0;
-        lives = MAX_LIVES;
-      }
-      startLevel();
-    });
-
-    // 처음 화면: 벽돌만 보여주고 기다리기
-    makeBackground();
-    makeBricks();
-    paddle.x = (canvas.width - PADDLE_W) / 2;
-    balls = [];
-    showInfo();
-    draw();
-  </script>
 </body>
 </html>
