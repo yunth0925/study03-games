@@ -21,6 +21,7 @@
     canvas {
       display: block;
       height: min(82vh, 640px);
+      max-width: 95vw;
       border: 4px solid #2b3467;
       border-radius: 10px;
       background: #000;
@@ -58,25 +59,29 @@
   <a href="../index.html" style="position:fixed;top:12px;left:16px;color:#aab;font-size:14px;text-decoration:none;z-index:10">← 게임 목록</a>
   <h1>🤖 로봇 출격!</h1>
   <div id="wrap">
-    <canvas id="game" width="480" height="640"></canvas>
+    <canvas id="game" width="700" height="640"></canvas>
     <div id="overlay">
       <div id="message">로봇 출격!</div>
       <div id="sub">
-        로봇을 타고 우주로!<br>
-        적 우주선과 운석을 부수세요.<br>
-        <b style="color:#ff8fa8">한 번이라도 맞으면 패배</b>예요.
+        우주선을 타고 고향으로 돌아가던 길,<br>
+        갑자기 <b style="color:#ff5d7a">우주 해적</b>이 나타났다!<br>
+        화물칸에 실려 있던 로봇을 타고 출격해서<br>
+        <b style="color:#ffd166">우리 우주선을 지켜라!</b><br>
+        <span style="font-size:15px;color:#aab">목숨 3개 · 위급할 땐 Space로 우주선 지원 사격</span>
       </div>
       <button id="startBtn">출격!</button>
     </div>
   </div>
-  <div id="help">방향키 이동 · Shift 누르는 동안 천천히 · Space 필드 클리어 (딱 1번) · 총은 자동으로 쏴요</div>
+  <div id="help">방향키 이동 · Shift 누르는 동안 천천히 · Space 우주선 지원 사격 · 총은 자동으로 쏴요</div>
 
   <script>
     // ===== 기본 준비 =====
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-    const W = canvas.width;
+    const W = 480;              // 게임 화면 너비 (왼쪽)
     const H = canvas.height;
+    const PANEL_X = W;          // 오른쪽 점수판이 시작하는 곳
+    const PANEL_W = canvas.width - W;
     const overlay = document.getElementById("overlay");
     const message = document.getElementById("message");
     const sub = document.getElementById("sub");
@@ -86,22 +91,35 @@
     const SPEED = 4.5;       // 로봇 이동 속도
     const SLOW_SPEED = 1.8;  // Shift 누를 때 속도
     const FIRE_GAP = 5;      // 몇 프레임마다 총을 쏠지 (작을수록 빨리)
+    const LIVES = 3;         // 처음 목숨 개수
     const BOSS_AT = 3500;    // 보스가 나오는 시간 (60 = 1초)
 
+    // 스테이지 목록: ready가 true인 것만 만들어져 있어요. 나머지는 제작 예정!
+    const STAGES = [
+      { name: "해적의 습격",   ready: true },
+      { name: "운석 지대",     ready: false },
+      { name: "해적 기지 앞", ready: false },
+      { name: "얼음 행성",     ready: false },
+      { name: "고향 하늘",    ready: false },
+    ];
+
     // ===== 게임 상태 =====
-    // title: 시작 화면, intro: 우주선에서 내리는 중, play: 게임 중,
+    // title: 시작 화면, drop: 우주선에서 로봇이 내리는 중, play: 게임 중,
     // dying: 맞아서 터지는 중, clearing: 보스를 부숴서 터지는 중, end: 끝 화면
     let state = "title";
     let frame = 0;        // 화면이 그려진 횟수 (애니메이션용)
+    let stageIndex = 0;   // 지금 스테이지 (0 = 스테이지 1)
     let stageT = 0;       // 스테이지가 시작하고 지난 시간
-    let introT = 0;       // 출격 장면이 시작하고 지난 시간
+    let dropT = 0;        // 로봇이 내리는 장면이 시작하고 지난 시간
     let endT = 0;         // 터지는 장면 남은 시간
     let score = 0;
     let best = 0;
-    let bombs = 1;        // 필드 클리어 남은 횟수
-    let bombFlash = 0;    // 필드 클리어 효과 남은 시간
-    let bombX = 0, bombY = 0;
+    let lives = LIVES;    // 남은 목숨
+    let bombs = 1;        // 지원 사격 남은 횟수 (죽으면 다시 1개)
+    let support = null;   // 지원 사격 중이면 그 정보
+    let invuln = 0;       // 다시 내려온 뒤 잠깐 무적인 시간
     let warning = 0;      // 보스 경고 남은 시간
+    let banner = null;    // 화면 가운데 큰 글자 { top, big, t }
     let shake = 0;        // 화면 흔들림
     let timeline = [];    // 언제 어떤 적이 나올지 적어 둔 목록
     let endShownAt = 0;
@@ -182,7 +200,7 @@
       });
     }
 
-    // 스테이지 시간표: 몇 초에 무엇이 나올지
+    // 스테이지 1 시간표: 몇 초에 무엇이 나올지
     function buildTimeline() {
       const tl = [];
       const add = (at, fn) => tl.push({ at, fn });
@@ -217,7 +235,7 @@
         if (performance.now() - endShownAt > 800) startGame();
         return;
       }
-      if (state === "play" && e.key === " ") useBomb();
+      if (state === "play" && e.key === " ") callSupport();
     });
     document.addEventListener("keyup", (e) => {
       if (e.key === "ArrowLeft") keys.left = false;
@@ -231,20 +249,55 @@
       for (const k in keys) keys[k] = false;
     });
 
-    // 필드 클리어: 화면의 적과 총알을 한 번에 없애기 (보스는 큰 피해만)
-    function useBomb() {
-      if (bombs <= 0) return;
+    // =====================================================
+    // ===== 지원 사격 =====
+    // 로봇 뒤에 있던 우리 우주선이 아래에서 올라와 레이저를 쏘아 올려요.
+    // 빛의 선이 아래에서 위로 쓸고 올라가면서 적과 총알을 없애요. (보스는 큰 피해만)
+    // =====================================================
+    function callSupport() {
+      if (bombs <= 0 || support) return;
       bombs--;
-      bombFlash = 50;
-      bombX = player.x;
-      bombY = player.y;
-      shake = 20;
-      for (const b of eBullets) sparkle(b.x, b.y, b.color);
-      eBullets = [];
-      for (const e of enemies) {
-        if (e.wait > 0) continue;
-        damage(e, e.type === "boss" ? 60 : 999);
+      support = { t: 0, y: H + 150, line: H + 100, id: frame, missiles: [] };
+    }
+
+    function updateSupport() {
+      if (!support) return;
+      const s = support;
+      s.t++;
+      if (s.t <= 20) s.y = lerp(H + 150, H - 50, easeOut(s.t / 20)); // 1) 올라오기
+      if (s.t > 20 && s.t <= 80) {                                    // 2) 쏘아 올리기
+        if (s.t === 21) shake = 18;
+        s.line = lerp(s.y - 30, -30, (s.t - 20) / 60);
+        // 빛의 선보다 아래에 있는 적 총알은 사라짐
+        eBullets = eBullets.filter((b) => {
+          if (b.y < s.line) return true;
+          sparkle(b.x, b.y, b.color);
+          return false;
+        });
+        // 빛의 선에 닿은 적은 한 번씩 큰 피해
+        for (const e of enemies) {
+          if (e.wait > 0 || e.dead || e.y < s.line || e.supportId === s.id) continue;
+          e.supportId = s.id;
+          damage(e, e.type === "boss" ? 60 : 999);
+        }
+        // 날아가는 미사일 (보기 좋으라고)
+        if (s.t % 2 === 0) {
+          for (const side of [-1, 1]) {
+            s.missiles.push({ x: W / 2 + side * rand(40, 100), y: s.y - 20, vx: side * rand(0.5, 3), vy: -rand(8, 11) });
+          }
+        }
       }
+      if (s.t > 80) s.y += (s.t - 80) * 0.6;                          // 3) 물러나기
+      for (const m of s.missiles) {
+        m.x += m.vx;
+        m.y += m.vy;
+        if (m.y < s.line) {
+          m.dead = true;
+          explode(m.x, m.y, 4, ["#8ff0ff", "#fff"], 2);
+        }
+      }
+      s.missiles = s.missiles.filter((m) => !m.dead);
+      if (s.t >= 115) support = null;
     }
 
     // =====================================================
@@ -257,9 +310,10 @@
         if (s.y > H) { s.y = -2; s.x = Math.random() * W; }
       }
       if (shake > 0) shake--;
+      if (banner && --banner.t <= 0) banner = null;
 
-      if (state === "intro") updateIntro();
-      if (state === "play" || state === "dying" || state === "clearing") updateGame();
+      if (state === "drop") updateDrop();
+      if (state !== "title" && state !== "end") updateGame();
 
       for (const p of particles) {
         p.x += p.vx;
@@ -272,29 +326,43 @@
     }
 
     // 출격 장면: 우주선이 내려와서 → 문이 열리고 → 로봇이 내려가고 → 우주선은 떠나요
-    function updateIntro() {
-      introT++;
-      if (introT <= 90) carrier.y = lerp(-150, 150, easeOut(introT / 90));
-      if (introT > 90 && introT <= 110) carrier.hatch = (introT - 90) / 20;
-      if (introT > 110 && introT <= 170) {
+    // 출격 장면: 아래에서 우리 우주선이 올라와 → 위쪽 화물칸 문이 열리고 → 로봇이 날아오르고 → 우주선은 뒤로 물러나요
+    function startDrop() {
+      state = "drop";
+      dropT = 0;
+      player.visible = false;
+      Object.assign(carrier, { x: W / 2, y: H + 150, hatch: 0 });
+    }
+
+    function updateDrop() {
+      dropT++;
+      if (dropT <= 70) carrier.y = lerp(H + 150, H - 40, easeOut(dropT / 70));
+      if (dropT > 70 && dropT <= 85) carrier.hatch = (dropT - 70) / 15;
+      if (dropT === 86) {
         player.visible = true;
-        player.y = lerp(carrier.y + 20, H - 110, easeOut((introT - 110) / 60));
+        player.x = W / 2;
       }
-      if (introT > 170) {
-        carrier.hatch = Math.max(0, carrier.hatch - 0.05);
-        carrier.y -= (introT - 170) * 0.15;
+      if (dropT > 85 && dropT <= 140) {
+        player.y = lerp(carrier.y - 25, H - 150, easeOut((dropT - 85) / 55));
       }
-      if (introT >= 200) state = "play";
+      if (dropT >= 140) {
+        state = "play";
+        invuln = 90; // 나오자마자 맞지 않게 잠깐 무적
+      }
     }
 
     function updateGame() {
-      if (introT < 400) introT++; // "출격!" 글자가 사라지는 시간 재기
-      if (carrier.y > -200) carrier.y -= (introT - 170) * 0.15;
+      // 로봇을 내보낸 우주선은 문을 닫고 화면 아래(로봇 뒤)로 물러나요
+      if (state !== "drop" || dropT > 140) {
+        carrier.hatch = Math.max(0, carrier.hatch - 0.05);
+        if (carrier.y < H + 200) carrier.y += 3;
+      }
 
       if (state === "play") {
         stageT++;
         // 시간표에 적힌 시간이 되면 적 등장
         while (timeline.length && timeline[0].at <= stageT) timeline.shift().fn();
+        if (invuln > 0) invuln--;
       }
       if (state === "play" || state === "clearing") movePlayer();
       if (state === "play" && stageT % FIRE_GAP === 0) {
@@ -303,10 +371,7 @@
         bullets.push({ x: player.x + 16, y: player.y - 28 });
       }
       if (warning > 0) warning--;
-      if (bombFlash > 0) {
-        bombFlash--;
-        eBullets = []; // 효과가 남아 있는 동안은 적 총알도 사라짐
-      }
+      updateSupport();
 
       // 로봇 총알
       for (const b of bullets) b.y -= 11;
@@ -340,8 +405,8 @@
         b.y += b.vy;
       }
 
-      // 로봇이 맞았는지 (필드 클리어 중에는 안전)
-      if (state === "play" && bombFlash === 0) {
+      // 로봇이 맞았는지 (무적이거나 지원 사격 중에는 안전)
+      if (state === "play" && invuln === 0 && !support) {
         for (const b of eBullets) {
           if (dist(b, player) < b.r + player.r) return die();
         }
@@ -356,13 +421,13 @@
       eBullets = eBullets.filter((b) => b.x > -20 && b.x < W + 20 && b.y > -20 && b.y < H + 20);
       enemies = enemies.filter((e) => !e.dead && e.y < H + 80 && e.y > -200 && e.x > -80 && e.x < W + 80);
 
-      // 터지는 장면이 끝나면 끝 화면
+      // 터지는 장면이 끝나면 다음으로
       if (state === "dying" || state === "clearing") {
         endT--;
         if (state === "clearing" && endT % 8 === 0 && endT > 40) {
           explode(rand(W / 2 - 100, W / 2 + 100), rand(60, 200), 20, ["#fff", "#ffd166", "#ff7a3c"], 5);
         }
-        if (endT <= 0) state === "dying" ? showLose() : showClear();
+        if (endT <= 0) state === "dying" ? afterDeath() : showClear();
       }
     }
 
@@ -466,9 +531,21 @@
     function die() {
       state = "dying";
       endT = 90;
+      lives--;
       player.visible = false;
       shake = 25;
       explode(player.x, player.y, 50, ["#fff", "#38e1ff", "#ffd166"], 5);
+    }
+
+    // 터진 뒤: 목숨이 남았으면 우주선이 새 로봇을 내려 주고, 지원 사격도 다시 채워져요
+    function afterDeath() {
+      if (lives <= 0) return showLose();
+      bombs = 1;
+      bullets = [];
+      for (const b of eBullets) sparkle(b.x, b.y, b.color);
+      eBullets = [];
+      banner = { top: "화물칸의 예비 로봇 출동! (남은 목숨 " + lives + ")", big: "다시 출격!", t: 150 };
+      startDrop();
     }
 
     // 폭발 불꽃 만들기
@@ -525,23 +602,26 @@
     }
 
     // 로봇 (가운데 = 맞는 곳)
-    function drawRobot(x, y, tilt) {
+    function drawRobot(x, y, tilt, scale = 1, flame = true) {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(tilt);
+      ctx.scale(scale, scale);
       // 발의 불꽃
-      for (const fx of [-8, 8]) {
-        const fl = 10 + Math.random() * 7 + (keys.up ? 6 : 0);
-        const g = ctx.createLinearGradient(0, 16, 0, 16 + fl);
-        g.addColorStop(0, "#fff6c0");
-        g.addColorStop(0.4, "#ffb347");
-        g.addColorStop(1, "rgba(255,80,40,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.moveTo(fx - 5, 16);
-        ctx.lineTo(fx + 5, 16);
-        ctx.lineTo(fx, 16 + fl);
-        ctx.fill();
+      if (flame) {
+        for (const fx of [-8, 8]) {
+          const fl = 10 + Math.random() * 7 + (keys.up ? 6 : 0);
+          const g = ctx.createLinearGradient(0, 16, 0, 16 + fl);
+          g.addColorStop(0, "#fff6c0");
+          g.addColorStop(0.4, "#ffb347");
+          g.addColorStop(1, "rgba(255,80,40,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.moveTo(fx - 5, 16);
+          ctx.lineTo(fx + 5, 16);
+          ctx.lineTo(fx, 16 + fl);
+          ctx.fill();
+        }
       }
       ctx.lineWidth = 2;
       ctx.strokeStyle = "#1b2440";
@@ -577,24 +657,30 @@
       ctx.arc(0, -32, 2.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
 
+    function drawPlayer() {
+      if (!player.visible) return;
+      if (invuln > 0 && frame % 8 < 4) return; // 무적일 때는 깜빡깜빡
+      drawRobot(player.x, player.y, player.tilt);
       // Shift를 누르면 맞는 곳(작은 점)을 보여 줘요
       if (keys.slow && state === "play") {
         ctx.fillStyle = "#fff";
         ctx.strokeStyle = "#ff3c5a";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(x, y, player.r + 1.5, 0, Math.PI * 2);
+        ctx.arc(player.x, player.y, player.r + 1.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
     }
 
-    // 로봇을 내려 주는 우리 편 우주선
-    function drawCarrier() {
-      if (carrier.y < -140) return;
+    // 우리 우주선: 고향으로 가는 중. 로봇 뒤에서 위쪽을 보고 날아가요 (화물칸 문은 위쪽)
+    function drawCarrier(x, y, hatch, scale = 1) {
+      if (y < -140 || y > H + 140) return;
       ctx.save();
-      ctx.translate(carrier.x, carrier.y);
+      ctx.translate(x, y);
+      ctx.scale(scale, -scale); // 위아래 뒤집기: 엔진은 아래, 조종석은 위
       ctx.lineWidth = 3;
       ctx.strokeStyle = "#2a3a66";
       // 엔진 불꽃 (위쪽)
@@ -629,9 +715,39 @@
       }
       // 아래쪽 문 (열리면 까맣게)
       ctx.fillStyle = "#0b0f24";
-      ctx.fillRect(-20 * carrier.hatch, 22, 40 * carrier.hatch, 10);
+      ctx.fillRect(-20 * hatch, 22, 40 * hatch, 10);
       ctx.restore();
     }
+
+    // 지원 사격: 우주선에서 레이저 다섯 줄기 + 미사일, 그리고 아래로 내려가는 빛의 선
+    function drawSupport() {
+      if (!support) return;
+      const s = support;
+      if (s.t > 20 && s.t <= 80) {
+        ctx.fillStyle = "rgba(120,220,255,0.12)";
+        ctx.fillRect(0, s.line, W, H - s.line);
+        ctx.shadowColor = "#38e1ff";
+        ctx.shadowBlur = 16;
+        for (const bx of [-90, -45, 0, 45, 90]) {
+          const g = ctx.createLinearGradient(0, s.y, 0, s.line);
+          g.addColorStop(0, "rgba(255,255,255,0.95)");
+          g.addColorStop(1, "rgba(56,225,255,0.5)");
+          ctx.fillStyle = g;
+          ctx.fillRect(W / 2 + bx - 4, s.line, 8, s.y - 20 - s.line);
+        }
+        ctx.fillStyle = "#e6fbff";
+        ctx.fillRect(0, s.line - 3, W, 6);
+        ctx.shadowBlur = 0;
+      }
+      ctx.fillStyle = "#e6fbff";
+      for (const m of s.missiles) {
+        ctx.beginPath();
+        ctx.ellipse(m.x, m.y, 2.5, 7, -m.vx * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      drawCarrier(W / 2, s.y, 0);
+    }
+
 
     function drawEnemy(e) {
       ctx.save();
@@ -791,49 +907,21 @@
       ctx.globalAlpha = 1;
     }
 
-    // 필드 클리어 효과: 로봇에서 하얀 고리가 퍼져 나가요
-    function drawBomb() {
-      if (bombFlash <= 0) return;
-      const t = 1 - bombFlash / 50;
-      ctx.fillStyle = `rgba(200,245,255,${(1 - t) * 0.45})`;
-      ctx.fillRect(0, 0, W, H);
-      ctx.strokeStyle = `rgba(255,255,255,${1 - t})`;
-      ctx.lineWidth = 14 * (1 - t) + 2;
-      ctx.beginPath();
-      ctx.arc(bombX, bombY, t * 750, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    function drawHUD() {
-      ctx.textBaseline = "top";
-      ctx.font = "bold 18px 'Malgun Gothic', sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#fff";
-      ctx.fillText("점수 " + score, 12, 10);
-      ctx.font = "13px 'Malgun Gothic', sans-serif";
-      ctx.fillStyle = "#aab";
-      ctx.fillText("최고 " + best, 12, 32);
-      // 필드 클리어 남은 횟수
-      ctx.textAlign = "right";
-      ctx.font = "bold 15px 'Malgun Gothic', sans-serif";
-      ctx.fillStyle = bombs > 0 ? "#38e1ff" : "#556";
-      ctx.fillText((bombs > 0 ? "✦ " : "✧ ") + "필드 클리어 " + bombs, W - 12, 12);
-
-      // 보스 체력
+    // 게임 화면 위에 띄우는 것들 (보스 체력, 경고, 가운데 큰 글자)
+    function drawFieldText() {
       const boss = enemies.find((e) => e.type === "boss");
       if (boss) {
         ctx.fillStyle = "rgba(0,0,0,0.5)";
-        ctx.fillRect(60, H - 22, W - 120, 10);
+        ctx.fillRect(40, 14, W - 80, 10);
         ctx.fillStyle = "#ff5d7a";
-        ctx.fillRect(60, H - 22, (W - 120) * Math.max(0, boss.hp / boss.maxHp), 10);
+        ctx.fillRect(40, 14, (W - 80) * Math.max(0, boss.hp / boss.maxHp), 10);
         ctx.strokeStyle = "#fff";
         ctx.lineWidth = 1;
-        ctx.strokeRect(60, H - 22, W - 120, 10);
+        ctx.strokeRect(40, 14, W - 80, 10);
       }
 
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      // 보스 경고
       if (warning > 0 && Math.floor(warning / 15) % 2 === 0) {
         ctx.fillStyle = "rgba(255,40,70,0.25)";
         ctx.fillRect(0, H / 2 - 50, W, 100);
@@ -841,34 +929,121 @@
         ctx.font = "bold 38px Arial, sans-serif";
         ctx.fillText("⚠ WARNING ⚠", W / 2, H / 2 - 12);
         ctx.font = "bold 18px 'Malgun Gothic', sans-serif";
-        ctx.fillText("거대 적 모함 접근 중!", W / 2, H / 2 + 24);
+        ctx.fillText("우주 해적 모함 접근 중!", W / 2, H / 2 + 24);
       }
-      // 출격 글자
-      if (introT > 150 && introT < 330) {
-        ctx.globalAlpha = Math.min(1, (330 - introT) / 40);
+      if (banner) {
+        ctx.globalAlpha = Math.min(1, banner.t / 30);
         ctx.fillStyle = "#38e1ff";
-        ctx.font = "bold 22px Arial, sans-serif";
-        ctx.fillText("STAGE 1", W / 2, H / 2 - 40);
+        ctx.font = "bold 22px 'Malgun Gothic', sans-serif";
+        ctx.fillText(banner.top, W / 2, H / 2 - 40);
         ctx.fillStyle = "#fff";
         ctx.font = "bold 46px 'Malgun Gothic', sans-serif";
-        ctx.fillText("출격!", W / 2, H / 2 + 10);
+        ctx.fillText(banner.big, W / 2, H / 2 + 10);
         ctx.globalAlpha = 1;
       }
       ctx.textBaseline = "alphabetic";
     }
 
+    // ----- 오른쪽 점수판 -----
+    function drawPanel() {
+      const x = PANEL_X;
+      const cx = x + PANEL_W / 2;
+      ctx.fillStyle = "#0d1130";
+      ctx.fillRect(x, 0, PANEL_W, H);
+      ctx.fillStyle = "#2b3467";
+      ctx.fillRect(x, 0, 4, H);
+
+      const label = (text, y) => {
+        ctx.fillStyle = "#8a93c0";
+        ctx.font = "bold 13px 'Malgun Gothic', sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(text, x + 20, y);
+      };
+      const line = (y) => {
+        ctx.fillStyle = "#1f2752";
+        ctx.fillRect(x + 16, y, PANEL_W - 32, 2);
+      };
+
+      // 점수
+      label("점수", 34);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 30px Arial, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(score.toLocaleString(), x + PANEL_W - 20, 70);
+      ctx.fillStyle = "#8a93c0";
+      ctx.font = "13px 'Malgun Gothic', sans-serif";
+      ctx.fillText("최고 " + Math.max(best, score).toLocaleString(), x + PANEL_W - 20, 94);
+      line(110);
+
+      // 목숨: 남은 만큼 로봇이 밝게
+      label("목숨", 138);
+      for (let i = 0; i < LIVES; i++) {
+        ctx.globalAlpha = i < lives ? 1 : 0.2;
+        drawRobot(x + 50 + i * 50, 172, 0, 0.75, false);
+      }
+      ctx.globalAlpha = 1;
+      line(204);
+
+      // 지원 사격
+      label("지원 사격 (Space)", 232);
+      ctx.globalAlpha = bombs > 0 ? 1 : 0.25;
+      drawCarrier(cx, 268, 0, 0.6);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = "center";
+      ctx.font = "bold 15px 'Malgun Gothic', sans-serif";
+      ctx.fillStyle = bombs > 0 ? "#38e1ff" : "#556";
+      ctx.fillText(bombs > 0 ? "준비 완료!" : "사용함", cx, 312);
+      ctx.fillStyle = "#6b7399";
+      ctx.font = "12px 'Malgun Gothic', sans-serif";
+      ctx.fillText("죽으면 다시 채워져요", cx, 331);
+      line(348);
+
+      // 스테이지 목록 (2~5는 제작 예정)
+      label("스테이지", 376);
+      STAGES.forEach((st, i) => {
+        const y = 392 + i * 34;
+        const now = i === stageIndex && state !== "title";
+        ctx.fillStyle = now ? "#1f3a6e" : "#141a3d";
+        ctx.strokeStyle = now ? "#38e1ff" : "#232b5a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(x + 16, y, PANEL_W - 32, 28, 6);
+        ctx.fill();
+        ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.font = "bold 13px 'Malgun Gothic', sans-serif";
+        ctx.fillStyle = st.ready ? "#fff" : "#5a6290";
+        ctx.fillText(`${i + 1}. ${st.name}`, x + 26, y + 19);
+        ctx.textAlign = "right";
+        ctx.font = "11px 'Malgun Gothic', sans-serif";
+        ctx.fillStyle = st.ready ? "#38e1ff" : "#5a6290";
+        ctx.fillText(st.ready ? (now ? "◀ 지금" : "") : "🔒 제작 예정", x + PANEL_W - 24, y + 18);
+      });
+
+      // 조작 방법
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#6b7399";
+      ctx.font = "12px 'Malgun Gothic', sans-serif";
+      ctx.fillText("방향키 이동 · Shift 천천히", cx, H - 16);
+    }
+
     function draw() {
+      // 왼쪽 게임 화면 (흔들릴 때도 점수판은 그대로)
       ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.clip();
       if (shake > 0) ctx.translate(rand(-1, 1) * shake * 0.4, rand(-1, 1) * shake * 0.4);
       drawBackground();
-      drawCarrier();
+      drawCarrier(carrier.x, carrier.y, carrier.hatch);
       for (const e of enemies) if (e.wait <= 0) drawEnemy(e);
-      if (player.visible) drawRobot(player.x, player.y, player.tilt);
+      drawPlayer();
       drawBullets();
+      drawSupport();
       drawParticles();
-      drawBomb();
+      if (state !== "title") drawFieldText();
       ctx.restore();
-      if (state !== "title") drawHUD();
+      drawPanel();
     }
 
     // ===== 계속 반복하기 =====
@@ -889,21 +1064,23 @@
 
     // ===== 시작 / 끝 =====
     function startGame() {
-      state = "intro";
+      stageIndex = 0;
       stageT = 0;
-      introT = 0;
       score = 0;
+      lives = LIVES;
       bombs = 1;
-      bombFlash = 0;
+      support = null;
+      invuln = 0;
       warning = 0;
       bullets = [];
       enemies = [];
       eBullets = [];
       particles = [];
       timeline = buildTimeline();
-      Object.assign(player, { x: W / 2, y: H - 110, tilt: 0, visible: false });
-      Object.assign(carrier, { x: W / 2, y: -150, hatch: 0 });
+      player.tilt = 0;
+      banner = { top: "STAGE 1", big: STAGES[0].name, t: 240 };
       overlay.classList.add("hidden");
+      startDrop();
     }
 
     function showEnd(title, color, text) {
@@ -915,17 +1092,18 @@
       }
       message.textContent = title;
       message.style.color = color;
-      sub.innerHTML = text + `<br>점수 ${score} · 최고 ${best}`;
+      sub.innerHTML = text + `<br>점수 ${score.toLocaleString()} · 최고 ${best.toLocaleString()}`;
       startBtn.textContent = "다시 출격";
       overlay.classList.remove("hidden");
     }
 
     function showLose() {
-      showEnd("패배…", "#ff5d7a", "한 번 맞으면 끝이에요.<br>Shift로 천천히 움직이면 피하기 쉬워요!");
+      showEnd("패배…", "#ff5d7a", "로봇을 모두 잃고 우주선이 해적에게 붙잡혔어요.<br>Shift로 천천히 움직이면 피하기 쉬워요!");
     }
 
     function showClear() {
-      showEnd("스테이지 클리어!", "#ffd166", "거대 적 모함을 물리쳤어요! 🎉");
+      showEnd("스테이지 1 클리어!", "#ffd166",
+        "해적 모함을 물리치고 우주선을 지켜 냈어요! 🎉<br>고향까지는 아직 먼 길…<br><span style='color:#aab'>스테이지 2~5는 제작 예정이에요.</span>");
     }
 
     startBtn.addEventListener("click", () => {
