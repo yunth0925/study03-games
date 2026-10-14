@@ -220,7 +220,7 @@
     </div>
   </div>
 
-  <div id="help">스페이스 · ↑ · 클릭 = 폴짝 날기 · 파이프에 부딪히거나 바닥에 떨어지면 게임 오버</div>
+  <div id="help">스페이스 · ↑ · 클릭 = 폴짝 날기 · 파이프에 부딪히거나 바닥에 떨어지면 게임 오버 · M = 음악 켜기/끄기</div>
 
   <script>
     // ===== 기본 준비 =====
@@ -332,6 +332,21 @@
       showInfo();
     }
 
+    // ===== 배경 음악 =====
+    // 브라우저는 사람이 한 번 누르기 전에는 소리를 못 내게 해서, 게임을 시작할 때 틀어요
+    const bgm = new Audio("music/bgm.mp3");
+    bgm.loop = true;   // 끝나면 처음부터 다시
+    bgm.volume = 0.4;  // 소리 크기 (0 ~ 1)
+    let musicOn = true;
+    function playMusic() {
+      if (musicOn && bgm.paused) bgm.play().catch(() => {}); // 파일이 없어도 게임은 그대로
+    }
+    function toggleMusic() {
+      musicOn = !musicOn;
+      if (musicOn) playMusic();
+      else bgm.pause();
+    }
+
     // ===== 조작 =====
     function flap() {
       if (playing) flapQueued = true;
@@ -339,6 +354,7 @@
     document.addEventListener("keydown", (e) => {
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
       if (e.repeat) return;
+      if (e.key === "m" || e.key === "M" || e.key === "ㅡ") return toggleMusic(); // M: 음악 켜기/끄기
       // 시작/끝 화면에서는 스페이스나 엔터로 시작 (끝나고 0.6초는 기다리기)
       if (!playing) {
         if ((e.key === " " || e.key === "Enter") && performance.now() - endTime > 600) startGame();
@@ -1107,6 +1123,7 @@
     function startGame() {
       resetGame();
       overlay.classList.add("hidden");
+      playMusic();
       playing = true;
       flapQueued = true; // 시작하자마자 한 번 폴짝
       acc = 0;
